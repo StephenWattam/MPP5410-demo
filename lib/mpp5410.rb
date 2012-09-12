@@ -92,11 +92,15 @@ module MPP5410
 
     # Set barcode height
     @barcode_height = nil
-    SET_BARCODE_HEIGHT_PREFIX = [29, 104] # [n > 1, <255]
+    BARCODE_HEIGHT_PREFIX = [29, 104] # [n > 1, <255]
 
     # Set barcode magnification
     @barcode_magnification = nil
-    SET_BARCODE_MAGNIFICATION_PREFIX = [29, 119] # [n]
+    BARCODE_MAGNIFICATION_PREFIX = [29, 119] # [n]
+
+    # Set barcode start position
+    @barcode_start_position = [nil, nil]
+    BARCODE_START_POSITION_PREFIX = [27, 36] # [x, y]
 
     # Barcode printing
     # TODO: quick checks on data length and/or checksums
@@ -111,6 +115,18 @@ module MPP5410
                         }
     BARCODE_TYPE_PREFIX = [29, 107]
 
+    # Image types
+    IMAGE_FORMATS       = { 8  => {:single => {:cmd => 0, :bytes_per_col => 1},
+                                   :double => {:cmd => 1, :bytes_per_col => 2},
+                                  },
+                            24 => {:single => {:cmd => 32, :bytes_per_col => 3},
+                                   :double => {:cmd => 33, :bytes_per_col => 6},
+                                  }
+                          }
+    IMAGE_FORMAT_PREFIX = [27, 42]  # [n] [n1, n2] [d]
+    IMAGE_DEFAULT_PREFIX = [27, 75] # n1 n2 [d]
+    IMAGE_DEFAULT_PINS = 8  
+    IMAGE_COLUMNS_PER_LINE  = 192 # 192 cols per line max
 
     # Create a new land of wonder and joy, i.e. driver object
     def initialize(device_file)
@@ -135,10 +151,162 @@ module MPP5410
       return me
     end
 
+
+
+
+    # image processing
+    def plot_bitfield(data, pins=nil, density=nil)
+      # TODO: check data length per-format
+      #       check data format fits on page
+      #
+       
+      defaults_loaded = false
+      if not pins or not density then
+        defaults_loaded = true
+        $stdout.puts "STUB: guessing density from current settings."
+        pins = IMAGE_DEFAULT_PINS
+      end
+
+      # Compute arguments to the box.
+      #
+      # At 24 pins, we have three bits per "column"
+      # At 8 pins, each bit defines a single column
+      columns = (data.length / (pins/8)).to_i
+      raise "data for image is not divisible by #{pins/8} bytes." if not columns == (data.length.to_f / (pins/8).to_f)
+
+      # n1 and n2 encode pins in a weird way, spanning the byte:
+      n1 = columns % 255 # mod
+      n2 = columns / 255 # integer division
+     
+      # Default i1, else load from list
+      # bytes_per_col = defaults_loaded ? 1 : IMAGE_FORMATS[pins][density][:bytes_per_col]
+       
+      if defaults_loaded then
+        write_raw( IMAGE_DEFAULT_PREFIX + [n1, n2] + data )
+      else
+        raise "no such image pin count: #{pins}"                if not IMAGE_FORMATS.include?(pins)
+        raise "number of pins must be in #{IMAGE_FORMATS.keys}" if not IMAGE_FORMATS.keys.include?(pins)
+        raise "density must be in #{IMAGE_FORMATS[pins].keys}"  if not IMAGE_FORMATS[pins].keys.include?(density)
+
+        write_raw( IMAGE_FORMAT_PREFIX + [IMAGE_FORMATS[pins][density][:cmd]] + [n1, n2] + data )
+      end
+    end
+
+    # With 192 "columns" to a page, we have to adjust for various densities.
+    # This is done with the IMAGE_FORMATS constant
+    def bytes_per_image_line(pins, density)
+      IMAGE_COLUMNS_PER_LINE * IMAGE_FORMATS[pins][density][:bytes_per_col]
+    end
+
+    # Returns the number of columns rendered for a given density in an image
+    def columns_per_image_line(density)
+      IMAGE_COLUMNS_PER_LINE * ((density == :double) ? 2 : 1)
+    end
+
+    # Plot an image from ImageMagick or disk
+    def plot_image(image, pins, density, margin=0, resize=false)
+      plot_bitfield( image_to_bitfield( image, pins, density, margin, resize), pins,  :single )
+    end
+
+    # Plot an RMagick image on a virtual surface.
+    # FIXME: this is subtly broken in a few ways.
+    def image_to_bitfield(image, pins, density, margin=0, resize=false)
+      require 'RMagick'
+
+      # Load from file if asked to do so.
+      if image.is_a?(String) and File.exist?(image) then
+        image = Magick::Image::read(image).first
+      end
+
+      # Check we can plot it in this mode
+      max_width = columns_per_image_line(density)
+      puts "MAX WIDTH(cols) : #{max_width}"
+      image = image.resize_to_fit(max_width)          if resize
+      raise "Image is too large to plot" if not resize and image.columns > max_width
+
+      # Pixels are NOT square, being instead a ratio of the density and number of
+      # pins per row.  This is vaguely analogous to the number of bits per pixel,
+      # in that it is proportional to the very same...
+      adjusted_height = image.rows
+      adjusted_height /= (IMAGE_FORMATS[pins][density][:bytes_per_col])
+      # adjusted_height /= 0.8
+      image.resize!(image.columns, adjusted_height);
+
+
+      # Compute the number of lines, essentially bg.rows.ceil(pins)
+      # This ensures we round up to the number of "lines" we can print
+      rows = image.rows / pins.to_f
+      rows = (rows.to_i + 1) if not rows == rows.to_i
+      rows *= pins
+
+      # TODO: copy it into something exactly max_width * image.height size, all white
+      bg = Magick::Image.new(max_width, rows){   # round up to pins height
+        self.background_color = "white"; 
+      }
+      bg.composite!(image, margin, 0, Magick::SrcAtopCompositeOp)
+      bg = bg.quantize(2, Magick::GRAYColorspace)
+
+
+      # At this point the image is quantised and ready for conversion
+      # image.display
+      # bg.display
+    
+      bitfield = []
+      lines = bg.rows / pins
+      puts "IMAGE MODE: #{pins} #{density}"
+      puts "LINES: #{lines} @ #{pins} pins = #{bg.rows} rows."
+      puts "Density: #{density} * #{IMAGE_COLUMNS_PER_LINE}/line = #{bg.columns} cols."
+      pixels = 0
+      0.upto(lines-1){|row|    # along each row
+        0.upto(bg.columns-1){|pix_x| 
+
+          # Build a byte for this line (line may require > 1 byte)
+          bytes = [0] * (pins / 8)
+
+          (pins-1).downto(0){|y_offset| # for each byte, 
+            pix_y = (row * pins) + y_offset
+
+            # Work out which bit of which byte
+            byte_offset = y_offset % 8
+            byte        = y_offset / 8
+
+            # output handy stuff
+            # $stdout.puts "[#{byte}](#{pix_x}, #{pix_y}) : #{bg.pixel_color(pix_x, pix_y).red}"
+
+            # Set the (y_offset/8)'th byte to have this particular pixel on/off.
+            bytes[byte] |= (1 << (7-byte_offset)) if bg.pixel_color(pix_x, pix_y).red < 50
+            pixels += 1
+          }
+          # $stdout.puts "bytes: #{bytes}"
+
+          # Add the byte
+          bitfield += bytes
+        }
+      }
+
+      puts "BITFIELD LENGTH: #{bitfield.length} vs #{bytes_per_image_line(pins, density) * lines}"
+      puts "PIXEL COUNT: #{pixels} (#{bg.columns} * #{lines*pins}) (#{bitfield.length / lines} bytes/line)"
+
+      return bitfield
+    end
+
+
+    # Read barcode start position
+    def barcode_start_position
+      @barcode_start_position
+    end
+
+    # Set barcode start position
+    def barcode_start_position=(xy)
+      raise "Barcode start position should be an [x,y] array" if not xy.is_a?(Array) and xy.length == 0
+      @barcode_start_position = xy
+      write_raw( BARCODE_START_POSITION_PREFIX + xy )
+    end
+
     # Print a barcode
     def print_barcode(type, values)
       raise "no such barcode type: #{type}" if not BARCODE_TYPES[type]
-      # TODO: check values.length matches with type
+      # TODO: check values.length per barcode type.
       
       # Convert values into ints if not done
       values.map!{|x|
@@ -146,7 +314,13 @@ module MPP5410
         x = x.to_i
       }
 
-      write_raw( (BARCODE_TYPE_PREFIX + [BARCODE_TYPES[type]]) + values + [0])
+      if type != :CODE128 then
+        write_raw( (BARCODE_TYPE_PREFIX + [BARCODE_TYPES[type]]) + values + [0])
+      else
+        # TODO: also handle 'n' from the datasheet
+        write_raw( (BARCODE_TYPE_PREFIX + [BARCODE_TYPES[type]]) + values)
+      end
+
     end
 
     # Query barcode magnification
@@ -158,7 +332,7 @@ module MPP5410
     def barcode_magnification=(b)
       raise "Magnification must be between 2 and 4 inclusive." if b > 4 or b < 2
       @barcode_magnification = b.to_i
-      write_raw( SET_BARCODE_MAGNIFICATION_PREFIX + [@barcode_magnification] )
+      write_raw( BARCODE_MAGNIFICATION_PREFIX + [@barcode_magnification] )
     end
 
     # read barcode height
@@ -170,8 +344,7 @@ module MPP5410
     def barcode_height=(b)
       raise "Barcode height must be between 1 and 255" if b > 255 or b < 1
       @barcode_height = b.to_i
-      puts "HEIGHT: #{(SET_BARCODE_HEIGHT_PREFIX + [@barcode_height]).join(", ")}."
-      write_raw( SET_BARCODE_HEIGHT_PREFIX + [@barcode_height] )
+      write_raw( BARCODE_HEIGHT_PREFIX + [@barcode_height] )
     end
 
     # Set chars per line if it's valid
@@ -194,13 +367,13 @@ module MPP5410
       mask = 0b00000000
 
       # Then combine it with the state from the object
-      mask &= 0b00010000 if @double_height
-      mask &= 0b00100000 if @double_width
-      mask &= 0b10000000 if @double_width
+      mask |= 0b00010000 if @double_height
+      mask |= 0b00100000 if @double_width
+      mask |= 0b10000000 if @double_width
 
       # and the numeric ones, done slightly stupidly here
-      mask &= PRINT_DENSITIES.index(@print_density) << 2  # shift left two
-      mask &= CHARS_PER_LINE.index(@char_per_line)        # don't shift this one
+      mask |= PRINT_DENSITIES.index(@print_density) << 2  # shift left two
+      mask |= CHARS_PER_LINE.index(@char_per_line)        # don't shift this one
 
       # Write as a number
       write_raw([mask])
@@ -366,10 +539,9 @@ module MPP5410
     # Write things raw (ascii encoding NOT enforced)
     def write_raw(msg = nil)
       msg = msg.map{|x| x.chr}.join if msg.is_a?(Array)
-      @dev.write(msg)
+      @dev.syswrite(msg)
     end
   end
-
 end
 
 
@@ -381,8 +553,7 @@ if __FILE__ == $0 then
   # Open a handle to the mpp deely
   mpp = MPP5410::MPP5410Device.open("/dev/ttyUSB0")
 
-
-  mpp.puts("Text")
+   mpp.puts("Text")
 
   # Test underline
   mpp.underline = true
@@ -430,6 +601,55 @@ if __FILE__ == $0 then
   mpp.barcode_height = 200
   mpp.puts "Longer barcode (#{mpp.barcode_height})"
   mpp.print_barcode(:EAN13, [9,7,8,1,5,9,9,8,6,9,5,2,0])
+
+
+
+  # Plot an image
+  mpp.puts "Image @ 8SD:"
+  imagedata = ["\xAA"]*mpp.bytes_per_image_line(8, :single)
+  mpp.plot_bitfield(imagedata, 8, :single)
+  mpp.puts "Image @ 8DD:"
+  imagedata = ["\xAA"]*mpp.bytes_per_image_line(8, :double)
+  mpp.plot_bitfield(imagedata, 8, :double)
+  mpp.puts "Image @ 24SD:"
+  imagedata = ["\xAA"]*mpp.bytes_per_image_line(24, :single)
+  mpp.plot_bitfield(imagedata, 24, :single)
+  mpp.puts "Image @ 24DD:"
+  imagedata = ["\xAA"]*mpp.bytes_per_image_line(24, :double)
+  mpp.plot_bitfield(imagedata, 24, :double)
+
+
+  # Plot an image from a file
+  # mpp.puts "DONE"
+  # mpp.puts "DONE"
+  # mpp.puts "DONE"
+  # mpp.puts "DONE"
+  # mpp.puts "DONE"
+  # mpp.puts "DONE"
+  mpp.plot_image("lena.jpg", 8, :single, 0, true)
+  mpp.puts "DONE"
+  # # 
+  # mpp.puts "PLOTTING AT 8/SD"
+  # mpp.puts "PLOTTING AT 8/SD"
+  # mpp.puts "PLOTTING AT 8/SD"
+  # mpp.plot_image("icon.png", 8, :single, 0, true)
+  # mpp.puts "PLOTTING AT 8/DD"
+  # mpp.puts "PLOTTING AT 8/DD"
+  # mpp.puts "PLOTTING AT 8/DD"
+  # mpp.plot_image("icon.png", 8, :double, 0, true)
+  # mpp.puts "PLOTTING AT 24/SD"
+  # mpp.puts "PLOTTING AT 24/SD"
+  # mpp.puts "PLOTTING AT 24/SD"
+  # mpp.plot_image("icon.png", 24, :single, 0, true)
+  # mpp.puts "PLOTTING AT 24/DD"
+  # mpp.puts "PLOTTING AT 24/DD"
+  # mpp.puts "PLOTTING AT 24/DD"
+  # mpp.plot_image("icon.png", 24, :double, 0, true)
+  # mpp.puts "-------------"
+  # mpp.puts "-------------"
+  # mpp.puts "-------------"
+  # mpp.puts "-------------"
+  # mpp.puts "-------------"
 
   # Feed past the housing
   mpp.print_and_feed_paper
