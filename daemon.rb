@@ -46,6 +46,10 @@ class Daemon
     end
   end
 
+  def close
+    @sockets.each{|s| s.close}
+  end
+
   private
 
   def dispatch(info)
