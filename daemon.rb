@@ -105,7 +105,6 @@ DEFAULT_PORTS = (4000..4010).to_a
 
 if __FILE__ == $0 then
 
-  require './message.rb'
 
   ports = DEFAULT_PORTS
   d = Daemon.new(ports, [:time, :app, :name, :msg])
