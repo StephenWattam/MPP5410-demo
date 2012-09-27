@@ -128,18 +128,28 @@ module MPP5410
     IMAGE_DEFAULT_PINS = 8  
     IMAGE_COLUMNS_PER_LINE  = 192 # 192 cols per line max
 
+
+    # Control chars
+    XON = 17.chr
+    XOFF = 19.chr
+
+    # Estimate delay for no flow control
+    ESTIMATE_CHUNK_SIZE = 10    # in bytes
+    ESTIMATE_CHUNK_DELAY = 0.1  # in seconds
+
     # Create a new land of wonder and joy, i.e. driver object
-    def initialize(device_file)
+    def initialize(device_file, flow_control = :hardware)
       raise "file is not writable" if not File.writable?(device_file)
       raise "file is not character device" if not File.chardev?(device_file)
-      @dev = File.open(device_file, 'w+')
+      @dev = File.open(device_file, 'wb+')
+      @flow_control = flow_control
       set_charset(DEFAULT_CHARSET)
     end
 
     # Open a device with optional block
-    def self.open(device_file)
+    def self.open(device_file, flow_control = :hardware)
       # Construct a new deely.
-      me = new(device_file)
+      me = new(device_file, flow_control)
 
       if block_given? then
         # Yield the connected self
@@ -290,6 +300,9 @@ module MPP5410
       return bitfield
     end
 
+    def flow_control
+      @flow_control || :none
+    end
 
     # Read barcode start position
     def barcode_start_position
@@ -539,7 +552,46 @@ module MPP5410
     # Write things raw (ascii encoding NOT enforced)
     def write_raw(msg = nil)
       msg = msg.map{|x| x.chr}.join if msg.is_a?(Array)
-      @dev.syswrite(msg)
+
+      $stderr.puts "Flow control: #{flow_control}"
+
+      if @flow_control == :hardware then
+        @dev.syswrite(msg)
+      elsif @flow_control == :software then
+        require 'timeout'
+        msg.each_char{|c|
+          # Write a char
+          # $stdout.print(c)
+          @dev.syswrite(c)
+          # @dev.flush # optional?
+
+          control = ""
+          begin
+          Timeout::timeout(0.001){
+            # Check flow control
+            control = @dev.read(1)
+            $stderr.puts "===> READ #{control.ord}"
+          }
+          rescue
+          end
+
+
+          if control == XOFF then #xoff
+            while(not (@dev.read(1) == XON))do
+              sleep(0.1)
+            end
+          end
+        }
+      elsif @flow_control == :estimate then  # no flow control, but delay
+        chunks = msg.length / ESTIMATE_CHUNK_SIZE
+        chunks.times{|chunk|
+          $stdout.puts "-> #{(chunk * ESTIMATE_CHUNK_SIZE)} - #{((chunk+1)*ESTIMATE_CHUNK_SIZE)}"
+          @dev.syswrite(msg[(chunk * ESTIMATE_CHUNK_SIZE)..((chunk+1)*ESTIMATE_CHUNK_SIZE)])
+          sleep(ESTIMATE_CHUNK_DELAY)
+        }
+      else # no flow control at all
+        @dev.syswrite(msg)
+      end
     end
   end
 end
@@ -551,8 +603,9 @@ if __FILE__ == $0 then
   puts "Opening..."
 
   # Open a handle to the mpp deely
-  mpp = MPP5410::MPP5410Device.open("/dev/ttyUSB0")
+  mpp = MPP5410::MPP5410Device.open("/dev/ttyUSB0", :hardware)
 
+  mpp.puts "Using flow control: #{mpp.flow_control}"
    mpp.puts("Text")
 
   # Test underline

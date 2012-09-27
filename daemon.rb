@@ -12,9 +12,9 @@ require 'timeout'
 require 'thread'
 
 class Daemon
-  CLIENT_TIMEOUT = 50
-  NACK  = "NACK"
-  ACK   = "ACK"
+  CLIENT_TIMEOUT = 5
+  NACK  = 'NACK'
+  ACK   = 'ACK'
   MESSAGE_FIELDS = [:time, :app, :name, :msg]
 
   def initialize(ports, msg_fields = MESSAGE_FIELDS, op = lambda{|x| puts "RECEIVED: #{x}"}, thread = true)
@@ -80,13 +80,17 @@ class Daemon
       info[i] = Base64.decode64(info[i])
     }
 
-    info[MESSAGE_FIELDS.index(:time)] = Time.at(info[MESSAGE_FIELDS.index(:time)].to_i)   # And read the unix timestamp
+    # convert times for laziness
+    info[MESSAGE_FIELDS.index(:time)] = Time.at(info[MESSAGE_FIELDS.index(:time)].to_i) if MESSAGE_FIELDS.index(:time) # And read the unix timestamp
     
     # Build an output hash
     hash = {}
     info.each_index{|i|
       hash[MESSAGE_FIELDS[i]] = info[i]
     }
+
+    # Lastly, ack
+    client.write(ACK)
 
     return hash
   end
