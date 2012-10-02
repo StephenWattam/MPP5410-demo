@@ -14,8 +14,6 @@ msg = [
   ]
 
 
-count = MPPDaemon::Client.get_count(hostname, port)
-puts "Number of fields: #{count}"
 
 success = MPPDaemon::Client.send(hostname, port, msg)
 puts "Succeeded? #{success}"

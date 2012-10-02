@@ -32,7 +32,6 @@ module MPPDaemon
         # For each read socket accept a message
         rd.each{|s|
           client = s.accept                       # Accept connection
-          client.puts("#{@msg_fields.length}")    # Say the message length
           info = accept_message(client)           # Accept data
           client.close                            # Close
           dispatch(info)                          # Process stuff
@@ -111,13 +110,7 @@ module MPPDaemon
       @port = port.to_i
     end
 
-    def self.get_count(hostname, port)
-      s = TCPSocket.new(hostname, port)
-      num = s.readline.to_i
-      s.close
-      return num
-    end
-
+    
     def self.send(hostname, port, fields)
       # Construct the correct data format
       fields.map!{|x| Base64.strict_encode64(x.to_s)}
@@ -125,10 +118,6 @@ module MPPDaemon
 
       # connect
       s = TCPSocket.new(hostname, port)
-    
-      # Check length
-      msg_length = s.readline.to_i
-      raise "Data size mismatch" if fields.length != msg_length
 
       # send
       s.write(msg)
@@ -142,10 +131,6 @@ module MPPDaemon
       
     def send(fields)
       Client.send(@hostname, @port, fields)
-    end
-
-    def get_count
-      Client.get_count(@hostname, @port)
     end
   end
 end
