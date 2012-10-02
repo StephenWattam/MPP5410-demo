@@ -78,6 +78,7 @@ module MPPDaemon
       info = []
       Timeout::timeout(CLIENT_TIMEOUT){
         while( info.length < @msg_fields.length ) do
+          return if client.eof?
           info << client.readline.chomp
         end
       }
@@ -110,13 +111,20 @@ module MPPDaemon
       @port = port.to_i
     end
 
-    def send(fields)
+    def self.get_count(hostname, port)
+      s = TCPSocket.new(hostname, port)
+      num = s.readline.to_i
+      s.close
+      return num
+    end
+
+    def self.send(hostname, port, fields)
       # Construct the correct data format
       fields.map!{|x| Base64.strict_encode64(x.to_s)}
       msg = fields.join("\n") + "\n"
 
       # connect
-      s = TCPSocket.new(@hostname, @port)
+      s = TCPSocket.new(hostname, port)
     
       # Check length
       msg_length = s.readline.to_i
@@ -130,6 +138,14 @@ module MPPDaemon
       s.close
 
       return (code == ACK)
+    end
+      
+    def send(fields)
+      Client.send(@hostname, @port, fields)
+    end
+
+    def get_count
+      Client.get_count(@hostname, @port)
     end
   end
 end

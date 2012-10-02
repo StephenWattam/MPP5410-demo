@@ -42,7 +42,8 @@ d = MPPDaemon::Server.new((port_low .. port_high).to_a, [:time, :app, :name, :ms
 begin
   d.listen
 rescue Exception => e
-  puts "Exception caught: #{e}"
+  $stderr.puts "Exception caught: #{e}"
+  $stderr.puts e.backtrace.join("\n")
 end
 d.close
 puts "Done."

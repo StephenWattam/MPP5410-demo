@@ -5,7 +5,8 @@ port      = ARGV[1] || 4000
 require './daemon.rb'
 
 
-msg = [Time.now.to_i, 
+msg = [
+  Time.now.to_i, 
   "Application", 
   "Name", 
   "Message.", 
@@ -13,6 +14,8 @@ msg = [Time.now.to_i,
   ]
 
 
-client = MPPDaemon::Client.new(hostname, port)
-success = client.send(msg)
+count = MPPDaemon::Client.get_count(hostname, port)
+puts "Number of fields: #{count}"
+
+success = MPPDaemon::Client.send(hostname, port, msg)
 puts "Succeeded? #{success}"
