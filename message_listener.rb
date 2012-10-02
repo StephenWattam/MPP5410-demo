@@ -3,7 +3,7 @@
 
 require './daemon.rb'
 require './lib/mpp5410.rb'
-
+require 'RMagick'
 
 
 printer_file  = ARGV[0]   || '/dev/ttyUSB0'
@@ -21,7 +21,15 @@ port_high     = ARGV[2]   || 4010
 
 
 processor = lambda{|hash|
-  puts "Received a tasty little message: #{hash}"
+  begin
+    img = Magick::Image.from_blob(hash[:image])
+    puts "===> #{img}"
+    img[0].display
+    puts "Received a tasty little message: #{hash}"
+  rescue Exception => e
+    puts "Exception: #{e}"
+    puts e.backtrace.join("\n")
+  end
 }
 
 
@@ -30,7 +38,7 @@ processor = lambda{|hash|
 # Check le port
 raise "High port is below low port" if port_high < port_low
 puts "Listening on ports #{port_low} to #{port_high}..."
-d = Daemon.new((port_low .. port_high).to_a, [:time, :app, :name, :msg], processor)
+d = Daemon.new((port_low .. port_high).to_a, [:time, :app, :name, :msg, :image], processor)
 begin
   d.listen
 rescue Exception => e

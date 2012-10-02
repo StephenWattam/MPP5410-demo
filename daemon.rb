@@ -1,11 +1,8 @@
 # Message daemon listener for the mpp5410 message system
 #
 # Accepts base64-encoded unicode strings of the format:
-#  name \n
-#  time (unix time code) \n
-#  message \n
-#  \n
-
+# time
+# stuff
 require 'socket'
 require 'base64'
 require 'timeout'
@@ -68,29 +65,24 @@ class Daemon
     # Info to make the message from
     info = []
     Timeout::timeout(CLIENT_TIMEOUT){
-      while( info.length < MESSAGE_FIELDS.length ) do
+      while( info.length < @msg_fields.length ) do
         info << client.readline.chomp
       end
     }
 
     # If there's not enough info, NACK
-    if info.length != MESSAGE_FIELDS.length then
+    if info.length != @msg_fields.length then
       client.write(NACK)
       return
     end
 
     # Base64 unencode everything but item 1
-    (1..(info.length-1)).each{|i|
-      info[i] = Base64.decode64(info[i])
-    }
-
-    # convert times for laziness
-    info[MESSAGE_FIELDS.index(:time)] = Time.at(info[MESSAGE_FIELDS.index(:time)].to_i) if MESSAGE_FIELDS.index(:time) # And read the unix timestamp
+    info.map!{|x| Base64.strict_decode64(x.chomp) } 
     
     # Build an output hash
     hash = {}
     info.each_index{|i|
-      hash[MESSAGE_FIELDS[i]] = info[i]
+      hash[@msg_fields[i]] = info[i]
     }
 
     # Lastly, ack
@@ -101,10 +93,10 @@ class Daemon
 end
 
 
-DEFAULT_PORTS = (4000..4010).to_a
 
 if __FILE__ == $0 then
 
+  DEFAULT_PORTS = (4000..4010).to_a
 
   ports = DEFAULT_PORTS
   d = Daemon.new(ports, [:time, :app, :name, :msg])

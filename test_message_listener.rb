@@ -6,8 +6,17 @@ require 'socket'
 require 'base64'
 
 
-msg = ["#{Time.now.to_i}\n", Base64.encode64("Application"), Base64.encode64("Name"), Base64.encode64("Message.")].join
+msg = [Time.now.to_i, 
+  "Application", 
+  "Name", 
+  "Message.", 
+  File.open('sample.jpg', 'rb').read
+  ]
 
+
+msg.map!{|x| Base64.strict_encode64(x.to_s)}
+
+msg = msg.join("\n") + "\n"
 
 s = TCPSocket.new(hostname, port.to_i)
 s.write(msg)
