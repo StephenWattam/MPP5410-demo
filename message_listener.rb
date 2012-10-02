@@ -38,7 +38,7 @@ processor = lambda{|hash|
 # Check le port
 raise "High port is below low port" if port_high < port_low
 puts "Listening on ports #{port_low} to #{port_high}..."
-d = Daemon.new((port_low .. port_high).to_a, [:time, :app, :name, :msg, :image], processor)
+d = MPPDaemon::Server.new((port_low .. port_high).to_a, [:time, :app, :name, :msg, :image], processor)
 begin
   d.listen
 rescue Exception => e
