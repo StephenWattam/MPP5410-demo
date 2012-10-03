@@ -191,11 +191,11 @@ module MPP5410
       data.map!{|x| ([10].include?(x)) ? 11 : x } # FIXME: remove this amazing hack
 
    
-      puts "*** PLOT BITFIELD ***"
-      puts "pins: #{pins}, density=#{density}"
-      puts "columns: #{columns}, n=#{[n1,n2]}, data=#{data.length}"
-      puts "width (cols): #{IMAGE_COLUMNS_PER_LINE} (bytes) #{bytes_per_image_line(pins, density)}"
-      puts "raw: #{IMAGE_FORMAT_PREFIX + [IMAGE_FORMATS[pins][density][:cmd]] + [n1, n2] } + [d]*#{data.length}"
+      # puts "*** PLOT BITFIELD ***"
+      # puts "pins: #{pins}, density=#{density}"
+      # puts "columns: #{columns}, n=#{[n1,n2]}, data=#{data.length}"
+      # puts "width (cols): #{IMAGE_COLUMNS_PER_LINE} (bytes) #{bytes_per_image_line(pins, density)}"
+      # puts "raw: #{IMAGE_FORMAT_PREFIX + [IMAGE_FORMATS[pins][density][:cmd]] + [n1, n2] } + [d]*#{data.length}"
 
       # Default i1, else load from list
       # bytes_per_col = defaults_loaded ? 1 : IMAGE_FORMATS[pins][density][:bytes_per_col]
@@ -239,7 +239,7 @@ module MPP5410
 
       # Check we can plot it in this mode
       max_width = columns_per_image_line(density)
-      puts "MAX WIDTH(cols) : #{max_width}"
+      # puts "MAX WIDTH(cols) : #{max_width}"
       image = image.resize_to_fit(max_width)          if resize
       raise "Image is too large to plot" if not resize and image.columns > max_width
 
@@ -247,7 +247,7 @@ module MPP5410
       # pins per row.  This is vaguely analogous to the number of bits per pixel,
       # in that it is proportional to the very same...
       adjusted_height = image.rows
-      adjusted_height *= (IMAGE_FORMATS[pins][density][:bytes_per_col] / 8)
+      adjusted_height /= (IMAGE_FORMATS[pins][density][:bytes_per_col])
       # adjusted_height /= 0.8
       image.resize!(image.columns, adjusted_height)
 
@@ -272,9 +272,9 @@ module MPP5410
     
       bitfield = []
       lines = bg.rows / pins
-      puts "IMAGE MODE: #{pins} #{density}"
-      puts "LINES: #{lines} @ #{pins} pins = #{bg.rows} rows."
-      puts "Density: #{density} * #{IMAGE_COLUMNS_PER_LINE}/line = #{bg.columns} cols."
+      # puts "IMAGE MODE: #{pins} #{density}"
+      # puts "LINES: #{lines} @ #{pins} pins = #{bg.rows} rows."
+      # puts "Density: #{density} * #{IMAGE_COLUMNS_PER_LINE}/line = #{bg.columns} cols."
       pixels = 0
       0.upto(lines-1){|row|    # along each row
         0.upto(bg.columns-1){|pix_x| 
@@ -303,8 +303,8 @@ module MPP5410
         }
       }
 
-      puts "BITFIELD LENGTH: #{bitfield.length} vs #{bytes_per_image_line(pins, density) * lines}"
-      puts "PIXEL COUNT: #{pixels} (#{bg.columns} * #{lines*pins}) (#{bitfield.length / lines} bytes/line)"
+      # puts "BITFIELD LENGTH: #{bitfield.length} vs #{bytes_per_image_line(pins, density) * lines}"
+      # puts "PIXEL COUNT: #{pixels} (#{bg.columns} * #{lines*pins}) (#{bitfield.length / lines} bytes/line)"
 
       return bitfield
     end
