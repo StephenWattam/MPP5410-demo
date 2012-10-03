@@ -34,7 +34,7 @@ module MPPDaemon
           client = s.accept                       # Accept connection
           info = accept_message(client)           # Accept data
           client.close                            # Close
-          dispatch(info)                          # Process stuff
+          dispatch(info) if info                   # Process stuff
         }
 
         # Else, er, something, TODO.
@@ -85,6 +85,7 @@ module MPPDaemon
       # If there's not enough info, NACK
       if info.length != @msg_fields.length then
         client.write(NACK)
+        client.write("Field mismatch: expected #{@msg_fields.length}.")
         return
       end
 
@@ -101,6 +102,14 @@ module MPPDaemon
       client.write(ACK)
 
       return hash
+    rescue ArgumentError => e
+      client.write(NACK)
+      client.write("ArgumentError: #{e}")
+      return nil
+    rescue TimeoutError => e
+      client.write(NACK)
+      client.write("Timeout (limit: #{CLIENT_TIMEOUT})")
+      return nil
     end
   end
 

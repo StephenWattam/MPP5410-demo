@@ -21,15 +21,10 @@ port_high     = ARGV[2]   || 4010
 
 
 processor = lambda{|hash|
-  begin
-    img = Magick::Image.from_blob(hash[:image])
-    puts "===> #{img}"
-    img[0].display
-    puts "Received a tasty little message: #{hash}"
-  rescue Exception => e
-    puts "Exception: #{e}"
-    puts e.backtrace.join("\n")
-  end
+  # img = Magick::Image.from_blob(hash[:image])
+  # img[0].display
+  puts "Received a tasty little message: #{hash[:name]} #{hash[:msg]}"
+  # puts "===> #{img}"
 }
 
 
@@ -38,7 +33,7 @@ processor = lambda{|hash|
 # Check le port
 raise "High port is below low port" if port_high < port_low
 puts "Listening on ports #{port_low} to #{port_high}..."
-d = MPPDaemon::Server.new((port_low .. port_high).to_a, [:time, :app, :name, :msg, :image], processor)
+d = MPPDaemon::Server.new((port_low .. port_high).to_a, [:time, :app, :name, :msg, :image], processor, false)
 begin
   d.listen
 rescue Exception => e

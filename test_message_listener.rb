@@ -14,6 +14,7 @@ msg = [
   ]
 
 
-
-success = MPPDaemon::Client.send(hostname, port, msg)
-puts "Succeeded? #{success}"
+10.times{
+  success = MPPDaemon::Client.send(hostname, port, msg)
+  puts "Succeeded? #{success}"
+}
