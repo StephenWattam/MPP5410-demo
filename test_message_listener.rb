@@ -13,8 +13,7 @@ msg = [
   File.open('sample.jpg', 'rb').read
   ]
 
-
-10.times{
-  success = MPPDaemon::Client.send(hostname, port, msg)
+1.times{
+  success = MPPDaemon::Client.send(hostname, port, msg.dup)
   puts "Succeeded? #{success}"
 }

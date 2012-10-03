@@ -123,19 +123,15 @@ module MPP5410
                                    :double => {:cmd => 33, :bytes_per_col => 6},
                                   }
                           }
-    IMAGE_FORMAT_PREFIX = [27, 42]  # [n] [n1, n2] [d]
-    IMAGE_DEFAULT_PREFIX = [27, 75] # n1 n2 [d]
-    IMAGE_DEFAULT_PINS = 8  
+    IMAGE_FORMAT_PREFIX     = [27, 42]  # [n] [n1, n2] [d]
+    IMAGE_DEFAULT_PREFIX    = [27, 75] # n1 n2 [d]
+    IMAGE_DEFAULT_PINS      = 8  
     IMAGE_COLUMNS_PER_LINE  = 192 # 192 cols per line max
 
 
     # Control chars
-    XON = 17.chr
-    XOFF = 19.chr
-
-    # Estimate delay for no flow control
-    ESTIMATE_CHUNK_SIZE = 10    # in bytes
-    ESTIMATE_CHUNK_DELAY = 0.1  # in seconds
+    XON   = 17.chr
+    XOFF  = 19.chr
 
     # Create a new land of wonder and joy, i.e. driver object
     def initialize(device_file, flow_control = :hardware)
@@ -143,6 +139,7 @@ module MPP5410
       raise "file is not character device" if not File.chardev?(device_file)
       @dev = File.open(device_file, 'wb+')
       @flow_control = flow_control
+
       set_charset(DEFAULT_CHARSET)
     end
 
@@ -185,9 +182,21 @@ module MPP5410
       raise "data for image is not divisible by #{pins/8} bytes." if not columns == (data.length.to_f / (pins/8).to_f)
 
       # n1 and n2 encode pins in a weird way, spanning the byte:
-      n1 = columns % 255 # mod
-      n2 = columns / 255 # integer division
-     
+      n1 = columns % 256 # mod
+      n2 = columns / 256 # integer division
+
+      raise "Image is too large (n2 > 255)" if n2 > 255
+
+
+      data.map!{|x| ([10].include?(x)) ? 11 : x } # FIXME: remove this amazing hack
+
+   
+      puts "*** PLOT BITFIELD ***"
+      puts "pins: #{pins}, density=#{density}"
+      puts "columns: #{columns}, n=#{[n1,n2]}, data=#{data.length}"
+      puts "width (cols): #{IMAGE_COLUMNS_PER_LINE} (bytes) #{bytes_per_image_line(pins, density)}"
+      puts "raw: #{IMAGE_FORMAT_PREFIX + [IMAGE_FORMATS[pins][density][:cmd]] + [n1, n2] } + [d]*#{data.length}"
+
       # Default i1, else load from list
       # bytes_per_col = defaults_loaded ? 1 : IMAGE_FORMATS[pins][density][:bytes_per_col]
        
@@ -215,7 +224,7 @@ module MPP5410
 
     # Plot an image from ImageMagick or disk
     def plot_image(image, pins, density, margin=0, resize=false)
-      plot_bitfield( image_to_bitfield( image, pins, density, margin, resize), pins,  :single )
+      plot_bitfield( image_to_bitfield( image, pins, density, margin, resize), pins, density)
     end
 
     # Plot an RMagick image on a virtual surface.
@@ -238,9 +247,9 @@ module MPP5410
       # pins per row.  This is vaguely analogous to the number of bits per pixel,
       # in that it is proportional to the very same...
       adjusted_height = image.rows
-      adjusted_height /= (IMAGE_FORMATS[pins][density][:bytes_per_col])
+      adjusted_height *= (IMAGE_FORMATS[pins][density][:bytes_per_col] / 8)
       # adjusted_height /= 0.8
-      image.resize!(image.columns, adjusted_height);
+      image.resize!(image.columns, adjusted_height)
 
 
       # Compute the number of lines, essentially bg.rows.ceil(pins)
@@ -553,11 +562,12 @@ module MPP5410
     def write_raw(msg = nil)
       msg = msg.map{|x| x.chr}.join if msg.is_a?(Array)
 
-      $stderr.puts "Flow control: #{flow_control}"
+      $stdout.puts "==> #{msg.chars.map{|x| x.ord}}"
 
       if @flow_control == :hardware then
         @dev.syswrite(msg)
       elsif @flow_control == :software then
+        # FIXME: make this better.
         require 'timeout'
         msg.each_char{|c|
           # Write a char
@@ -567,10 +577,9 @@ module MPP5410
 
           control = ""
           begin
-          Timeout::timeout(0.001){
+          Timeout::timeout(0.01){
             # Check flow control
             control = @dev.read(1)
-            $stderr.puts "===> READ #{control.ord}"
           }
           rescue
           end
@@ -581,13 +590,6 @@ module MPP5410
               sleep(0.1)
             end
           end
-        }
-      elsif @flow_control == :estimate then  # no flow control, but delay
-        chunks = msg.length / ESTIMATE_CHUNK_SIZE
-        chunks.times{|chunk|
-          $stdout.puts "-> #{(chunk * ESTIMATE_CHUNK_SIZE)} - #{((chunk+1)*ESTIMATE_CHUNK_SIZE)}"
-          @dev.syswrite(msg[(chunk * ESTIMATE_CHUNK_SIZE)..((chunk+1)*ESTIMATE_CHUNK_SIZE)])
-          sleep(ESTIMATE_CHUNK_DELAY)
         }
       else # no flow control at all
         @dev.syswrite(msg)
@@ -602,11 +604,14 @@ end
 if __FILE__ == $0 then
   puts "Opening..."
 
+  # Set hardwrae flow control
+  `stty crtscts -F /dev/ttyUSB0`
+
   # Open a handle to the mpp deely
   mpp = MPP5410::MPP5410Device.open("/dev/ttyUSB0", :hardware)
 
   mpp.puts "Using flow control: #{mpp.flow_control}"
-   mpp.puts("Text")
+  mpp.puts("Text")
 
   # Test underline
   mpp.underline = true

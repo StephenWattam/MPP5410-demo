@@ -13,18 +13,35 @@ port_high     = ARGV[2]   || 4010
 
 
 # Open the mpp
-# mpp = MPP5410::MPP5410Device.open(printer_file, :hardware)
+mpp = MPP5410::MPP5410Device.open(printer_file, :hardware)
 # # Close mpp on exit
-# at_exit do
-#   mpp.close
-# end
+at_exit do
+  mpp.close
+end
 
 
 processor = lambda{|hash|
-  # img = Magick::Image.from_blob(hash[:image])
+  puts "--> received #{hash}"
+  # img = Magick::Image.from_blob(hash[:image])[0]
   # img[0].display
-  puts "Received a tasty little message: #{hash[:name]} #{hash[:msg]}"
-  # puts "===> #{img}"
+  
+  # Top line
+  imagedata = ["\xf0"] * (mpp.bytes_per_image_line(8, :single)*2)
+  # mpp.plot_bitfield(imagedata, 8, :single)
+  # 
+  # 
+  # mpp.puts "Service: #{hash[:app]}"
+  # mpp.puts "Time: #{Time.at(hash[:time].to_i)}"
+  # mpp.puts "Name: #{hash[:name]}"
+  # mpp.puts "Message: #{hash[:msg]}"
+  # # mpp.plot_image(img, 8, :single, 0, true)
+  # 
+  # # Bottom line 
+  # imagedata = ["\xf0"]*mpp.bytes_per_image_line(8, :single)
+  # mpp.plot_bitfield(imagedata, 8, :single)
+
+  # # Feed above housing
+  # mpp.print_and_feed_paper
 }
 
 
